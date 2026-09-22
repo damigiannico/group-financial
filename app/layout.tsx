@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Casa Clara — Finanzas del hogar',
+  title: 'Finanzas compartidas — Finanzas del hogar',
   description: 'Organizá los ingresos y gastos de tu hogar en un solo lugar.',
   generator: 'v0.app',
   icons: {

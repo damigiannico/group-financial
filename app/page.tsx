@@ -15,7 +15,7 @@ type TxType = 'income' | 'expense'
 type View = 'inicio' | 'movimientos' | 'analisis' | 'configuracion'
 type Transaction = { id: string | number; type: TxType; amount: number; category: string; description: string; user: string; date: string; icon: string; color: string }
 type GroupMember = { id: string; name: string; email: string; role: string }
-type GroupData = { group: { id: string; name: string } | null; members: GroupMember[]; currentUserId: string; currentUser?: { id: string; name: string; email: string } }
+type GroupData = { group: { id: string; name: string; createdBy?: string } | null; members: GroupMember[]; currentUserId: string; currentUser?: { id: string; name: string; email: string } }
 const fetcher = (url: string) => fetch(url).then(r => r.ok ? r.json() : [])
 
 const expenseCategories = [
@@ -35,7 +35,7 @@ const incomeCategories = [
 ]
 
 const categories = [...expenseCategories, ...incomeCategories.filter(income => !expenseCategories.some(expense => expense.name === income.name))]
-const periodOptions = ['Este mes', 'Últimos 3 meses', 'Últimos 6 meses', 'Todo']
+const periodOptions = ['Este mes', 'Mes futuro', 'Últimos 3 meses', 'Últimos 6 meses', 'Todo']
 
 const money = (value: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value).replace('ARS', '$')
 const dateLabel = (date: string) => new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'short' }).format(new Date(date + 'T12:00:00')).replace('.', '')
@@ -47,6 +47,7 @@ function TxIcon({ type, icon, color }: { type: TxType; icon: string; color: stri
 
 export default function Page() {
   const [view, setView] = useState<View>('inicio')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { data: groupData, mutate: mutateGroup } = useSWR<GroupData>('/api/groups', async (url: string) => {
     const response = await fetch(url)
     if (response.status === 401) { window.location.assign('/sign-in'); return { group: null, members: [], currentUserId: '' } }
@@ -87,7 +88,8 @@ export default function Page() {
     start.setMonth(start.getMonth() - periodMonths + 1)
     return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`
   }, [periodMonths])
-  const inSelectedPeriod = (date: string) => !periodStart || date.slice(0, 7) >= periodStart
+  const futureMonth = '2026-10'
+  const inSelectedPeriod = (date: string) => period === 'Mes futuro' ? date.slice(0, 7) >= futureMonth : !periodStart || date.slice(0, 7) >= periodStart
   const current = useMemo(() => visibleTransactions.filter(t => inSelectedPeriod(t.date)), [visibleTransactions, periodStart])
   const income = current.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
   const expenses = current.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
@@ -144,14 +146,14 @@ export default function Page() {
   }
 
   return <div className="app-shell">
-    <aside className="sidebar">
+    <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
       <div className="brand"><span className="brand-mark"><CircleDollarSign size={19} /></span><span>{groupData?.group?.name || 'No tenés grupo activo'}</span></div>
       <div className="group-card"><div className="eyebrow">GRUPO ACTIVO</div><div className="group-name">{groupData?.group?.name || 'Sin grupo'} <ChevronDown size={15} /></div><div className="members">{(groupData?.members || []).slice(0, 3).map((member, index) => <span key={member.id} className={`avatar ${index % 2 ? 'avatar-pink' : 'avatar-dark'}`}>{member.name[0]}</span>)}<span className="member-count">{groupData?.members.length || 0} integrantes</span></div></div>
-      <nav className="side-nav">{([['inicio', LayoutDashboard, 'Inicio'], ['movimientos', ArrowDownLeft, 'Movimientos'], ['analisis', BarChart3, 'Análisis'], ['configuracion', Settings, 'Configuración']] as const).map(([id, Icon, label]) => <button key={id} className={view === id ? 'nav-item active' : 'nav-item'} onClick={() => setView(id)}><Icon size={19} />{label}</button>)}</nav>
+      <nav className="side-nav">{([['inicio', LayoutDashboard, 'Inicio'], ['movimientos', ArrowDownLeft, 'Movimientos'], ['analisis', BarChart3, 'Análisis'], ['configuracion', Settings, 'Configuración']] as const).map(([id, Icon, label]) => <button key={id} className={view === id ? 'nav-item active' : 'nav-item'} onClick={() => { setView(id); setMobileMenuOpen(false) }}><Icon size={19} />{label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="budget-mini"><div className="eyebrow">PRESUPUESTO DEL MES</div><strong>{money(expenses)}</strong><div className="progress"><span style={{ width: expenses ? '72%' : '0%' }} /></div><small>{expenses ? '72% utilizado' : 'Sin movimientos todavía'}</small></div><div className="profile"><span className="avatar avatar-dark">{currentUserInitial}</span><div><strong>{currentUserName}</strong><small>{groupData?.group ? 'Integrante del grupo' : 'Sin grupo'}</small></div><ChevronDown size={15} /></div></div>
     </aside>
     <main className="main-content">
-      <header className="topbar"><button className="mobile-menu" aria-label="Abrir menú"><Menu size={22} /></button><div className="mobile-brand"><span className="brand-mark"><CircleDollarSign size={18} /></span>{groupData?.group?.name || 'No tenés grupo activo'}</div><div className="top-actions"><button className="icon-btn" aria-label="Notificaciones"><Bell size={19} /></button><span className="avatar avatar-dark">{currentUserInitial}</span><button className="logout-btn" onClick={async () => { await authClient.signOut(); window.location.assign('/sign-in') }}>Salir</button></div></header>
+      <header className="topbar"><button className="mobile-menu" aria-label={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'} onClick={() => setMobileMenuOpen(open => !open)}>{mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}</button>{mobileMenuOpen && <button className="mobile-menu-backdrop" aria-label="Cerrar menú" onClick={() => setMobileMenuOpen(false)} />}<div className="mobile-brand"><span className="brand-mark"><CircleDollarSign size={18} /></span>{groupData?.group?.name || 'No tenés grupo activo'}</div><div className="top-actions"><button className="icon-btn" aria-label="Notificaciones"><Bell size={19} /></button><span className="avatar avatar-dark">{currentUserInitial}</span><button className="logout-btn" onClick={async () => { await authClient.signOut(); window.location.assign('/sign-in') }}>Salir</button></div></header>
       <div className="content-wrap">
         <div className="page-heading"><div><div className="breadcrumb">{groupData?.group?.name || 'Sin grupo'} <span>›</span> {view === 'inicio' ? 'Resumen' : view[0].toUpperCase() + view.slice(1)}</div><h1>{view === 'inicio' ? `Buen día, ${currentUserName}` : view === 'movimientos' ? 'Movimientos' : view === 'analisis' ? 'Análisis' : 'Configuración'}</h1><p className="subtitle">{view === 'inicio' ? 'Este es el resumen de tu hogar.' : view === 'movimientos' ? 'Revisá todos los ingresos y gastos del grupo.' : view === 'analisis' ? 'Entendé cómo se mueve el dinero en casa.' : 'Administrá tu grupo y tus preferencias.'}</p></div><div className="heading-actions"><label className="period-control"><span className="sr-only">Período</span><select className="period-select" value={period} onChange={e => setPeriod(e.target.value)}>{periodOptions.map(option => <option key={option}>{option}</option>)}</select><ChevronDown size={15} /></label><Button className="primary-btn" onClick={() => setShowForm(true)}><Plus size={17} /> Movimiento</Button></div></div>
 
@@ -181,27 +183,28 @@ function SettingsView({ groupData, mutateGroup }: { groupData?: GroupData; mutat
   const [groupName, setGroupName] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
+  const [messageError, setMessageError] = useState(false)
   const createGroup = async () => {
     const response = await fetch('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: groupName }) })
     const data = await response.json()
-    setMessage(response.ok ? 'Grupo creado.' : data.error || 'No se pudo crear el grupo')
+    setMessageError(!response.ok); setMessage(response.ok ? 'Grupo creado.' : data.error || 'No se pudo crear el grupo')
     if (response.ok) { setGroupName(''); mutateGroup() }
   }
   const addMember = async () => {
     const response = await fetch('/api/groups', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
     const data = await response.json()
-    setMessage(response.ok ? 'Integrante agregado.' : data.error || 'No se pudo agregar')
+    setMessageError(!response.ok); setMessage(response.ok ? 'Integrante agregado.' : data.error || 'No se pudo agregar')
     if (response.ok) { setEmail(''); mutateGroup() }
   }
   const deleteGroup = async () => {
     if (!window.confirm('¿Eliminar este grupo y sus movimientos?')) return
-    const response = await fetch('/api/groups', { method: 'DELETE' })
+    const response = await fetch('/api/groups?group=true', { method: 'DELETE' })
     const data = await response.json().catch(() => ({}))
-    setMessage(response.ok ? 'Grupo eliminado.' : data.error || 'No se pudo eliminar el grupo')
+    setMessageError(!response.ok); setMessage(response.ok ? 'Grupo eliminado.' : data.error || 'No se pudo eliminar el grupo')
     if (response.ok) mutateGroup()
   }
-  if (!groupData?.group) return <section className="panel settings-content empty-group"><div className="settings-hero"><span className="settings-icon"><Users size={22} /></span><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>Creá tu grupo</h2><p>Invitá a las personas de tu hogar y lleven las finanzas juntos, con el mismo nivel de acceso.</p></div></div><div className="settings-form"><label>Nombre del grupo<input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Ej. Casa Giannico" /></label><button className="save-btn" onClick={createGroup}><Plus size={17} /> Crear grupo</button></div>{message && <div className="form-feedback success" role="status"><Check size={16} />{message}</div>}</section>
-  return <div className="settings-grid"><section className="panel settings-nav"><button className="settings-link active"><Users size={18} /> Grupo e integrantes</button><button className="settings-link"><Tag size={18} /> Categorías</button><button className="settings-link"><WalletCards size={18} /> Presupuesto</button><button className="settings-link"><Settings size={18} /> Preferencias</button></section><section className="panel settings-content"><div className="panel-head"><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>{groupData.group.name}</h2><p>Todos pueden registrar, eliminar movimientos e invitar integrantes.</p></div><button className="danger-btn" onClick={deleteGroup}><Trash2 size={15} /> Eliminar grupo</button></div><div className="invite-card"><div><strong>Invitar integrante</strong><small>La persona debe tener una cuenta creada.</small></div><div className="invite-row"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@ejemplo.com" /><button className="outline-btn" onClick={addMember}><Plus size={16} /> Agregar</button></div></div>{message && <div className="form-feedback success" role="status"><Check size={16} />{message}</div>}<div className="members-list">{groupData.members.map((member, index) => <Member key={member.id} name={member.name} email={member.email} role="Integrante" avatar={member.name[0]} dark={index === 0} canRemove={member.id !== groupData.currentUserId} onRemove={async () => { const response = await fetch(`/api/groups?userId=${encodeURIComponent(member.id)}`, { method: 'DELETE' }); const data = await response.json().catch(() => ({})); setMessage(response.ok ? `${member.name} fue quitado del grupo.` : data.error || 'No se pudo quitar al integrante.'); if (response.ok) mutateGroup() }} />)}</div></section></div>
+  if (!groupData?.group) return <section className="panel settings-content empty-group"><div className="settings-hero"><span className="settings-icon"><Users size={22} /></span><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>Creá tu grupo</h2><p>Invitá a las personas de tu hogar y lleven las finanzas juntos, con el mismo nivel de acceso.</p></div></div><div className="settings-form"><label>Nombre del grupo<input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Ej. Casa" /></label><button className="save-btn" onClick={createGroup}><Plus size={17} /> Crear grupo</button></div>{message && <div className={`form-feedback ${messageError ? 'error' : 'success'}`} role="alert">{messageError ? <X size={16} /> : <Check size={16} />}{message}</div>}</section>
+  return <div className="settings-grid"><section className="panel settings-nav"><button className="settings-link active"><Users size={18} /> Grupo e integrantes</button><button className="settings-link"><Tag size={18} /> Categorías</button><button className="settings-link"><WalletCards size={18} /> Presupuesto</button><button className="settings-link"><Settings size={18} /> Preferencias</button></section><section className="panel settings-content"><div className="panel-head"><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>{groupData.group.name}</h2><p>Todos pueden registrar, eliminar movimientos e invitar integrantes.</p></div>{groupData.group.createdBy === groupData.currentUserId && <button className="danger-btn" onClick={deleteGroup}><Trash2 size={15} /> Eliminar grupo</button>}</div><div className="invite-card"><div><strong>Invitar integrante</strong><small>La persona debe tener una cuenta creada.</small></div><div className="invite-row"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@ejemplo.com" /><button className="outline-btn" onClick={addMember}><Plus size={16} /> Agregar</button></div></div>{message && <div className={`form-feedback ${messageError ? 'error' : 'success'}`} role="alert">{messageError ? <X size={16} /> : <Check size={16} />}{message}</div>}<div className="members-list">{groupData.members.map((member, index) => <Member key={member.id} name={member.name} email={member.email} role="Integrante" avatar={member.name[0]} dark={index === 0} canRemove={member.id !== groupData.currentUserId} onRemove={async () => { const response = await fetch(`/api/groups?userId=${encodeURIComponent(member.id)}`, { method: 'DELETE' }); const data = await response.json().catch(() => ({})); setMessage(response.ok ? `${member.name} fue quitado del grupo.` : data.error || 'No se pudo quitar al integrante.'); if (response.ok) mutateGroup() }} />)}</div></section></div>
 }
 function Member({ name, email, role, avatar, dark, canRemove, onRemove }: { name: string; email: string; role: string; avatar: string; dark?: boolean; canRemove?: boolean; onRemove?: () => void }) { return <div className="member-row"><span className={`avatar ${dark ? 'avatar-dark' : 'avatar-pink'}`}>{avatar}</span><div><strong>{name}</strong><small>{email}</small></div><span className="role">{role}</span>{canRemove && <button className="member-remove" onClick={() => { if (window.confirm(`¿Quitar a ${name} del grupo?`)) onRemove?.() }} aria-label={`Quitar a ${name}`} title="Quitar integrante"><X size={16} /></button>}</div> }
 

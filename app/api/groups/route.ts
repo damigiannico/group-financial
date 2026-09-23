@@ -58,8 +58,18 @@ export async function DELETE(request: Request) {
   const current = await getSessionUser()
   if (!current) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const membership = (await getMembership(current.id))[0]
-  const userId = new URL(request.url).searchParams.get('userId') || current.id
+  const params = new URL(request.url).searchParams
+  const deleteGroup = params.get('group') === 'true'
+  const userId = params.get('userId') || current.id
   if (!membership) return NextResponse.json({ error: 'No pertenecés a un grupo' }, { status: 404 })
+  const group = (await db.select({ createdBy: householdGroups.createdBy }).from(householdGroups).where(eq(householdGroups.id, membership.groupId)).limit(1))[0]
+  if (deleteGroup) {
+    if (group?.createdBy !== current.id) return NextResponse.json({ error: 'Solo quien creó el grupo puede eliminarlo.' }, { status: 403 })
+    await db.delete(transactions).where(eq(transactions.groupId, membership.groupId))
+    await db.delete(groupMembers).where(eq(groupMembers.groupId, membership.groupId))
+    await db.delete(householdGroups).where(eq(householdGroups.id, membership.groupId))
+    return NextResponse.json({ ok: true, deletedGroupId: membership.groupId })
+  }
   const target = (await db.select({ id: user.id, name: user.name }).from(user).where(eq(user.id, userId)).limit(1))[0]
   if (!target) return NextResponse.json({ error: 'No existe ese integrante.' }, { status: 404 })
   const targetMembership = (await db.select().from(groupMembers).where(and(eq(groupMembers.groupId, membership.groupId), eq(groupMembers.userId, userId))).limit(1))[0]

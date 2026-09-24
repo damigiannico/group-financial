@@ -34,7 +34,11 @@ const incomeCategories = [
   { name: 'Otros', icon: 'tag', color: '#d9d3c7' },
 ]
 
-const categories = [...expenseCategories, ...incomeCategories.filter(income => !expenseCategories.some(expense => expense.name === income.name))]
+type Category = { id?: string; name: string; icon: string; color: string; appliesTo: 'income' | 'expense' | 'both' }
+const defaultCategories: Category[] = [
+  ...expenseCategories.map(category => ({ ...category, appliesTo: 'expense' as const })),
+  ...incomeCategories.filter(income => !expenseCategories.some(expense => expense.name === income.name)).map(category => ({ ...category, appliesTo: 'income' as const })),
+]
 const periodOptions = ['Este mes', 'Mes futuro', 'Últimos 3 meses', 'Últimos 6 meses', 'Todo']
 
 const money = (value: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value).replace('ARS', '$')
@@ -54,6 +58,12 @@ export default function Page() {
     if (!response.ok) throw new Error('No se pudo cargar el grupo')
     return response.json()
   })
+  const { data: persistedCategories, mutate: mutateCategories } = useSWR<Category[]>('/api/categories', async (url: string) => {
+    const response = await fetch(url)
+    if (response.status === 401) { window.location.assign('/sign-in'); return [] }
+    if (!response.ok) throw new Error('No se pudieron cargar las categorías')
+    return response.json()
+  })
   const { data: persistedTransactions, mutate } = useSWR<Transaction[]>('/api/transactions', async (url: string) => {
     const response = await fetch(url)
     if (response.status === 401) {
@@ -64,6 +74,7 @@ export default function Page() {
     return response.json()
   })
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const customCategories = persistedCategories?.length ? persistedCategories.map(category => ({ name: category.name, icon: category.icon, color: category.color, appliesTo: category.appliesTo as Category['appliesTo'], id: category.id })) : defaultCategories
   const currentUser = groupData?.currentUser ?? { id: '', name: 'Tu cuenta', email: '' }
   const currentMember = groupData?.members.find(member => member.id === groupData.currentUserId)
   const currentUserName = currentMember?.name || currentUser.name
@@ -73,7 +84,7 @@ export default function Page() {
   const [type, setType] = useState<TxType>('expense')
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState('Supermercado')
-  const categoryOptions = type === 'income' ? incomeCategories : expenseCategories
+  const categoryOptions = customCategories.filter(category => category.appliesTo === type || category.appliesTo === 'both')
   const [description, setDescription] = useState('')
   const [search, setSearch] = useState('')
   const [period, setPeriod] = useState('Este mes')
@@ -100,7 +111,7 @@ export default function Page() {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [current])
   const filtered = current.filter(t => `${t.description} ${t.category} ${t.user}`.toLowerCase().includes(search.toLowerCase()))
-  const categoryColor = (name: string) => categories.find(category => category.name === name)?.color || '#d9d3c7'
+  const categoryColor = (name: string) => customCategories.find(category => category.name === name)?.color || '#d9d3c7'
   const expenseDonut = useMemo(() => {
     if (!expenses) return 'conic-gradient(#e7e2da 0 100%)'
     let cursor = 0
@@ -129,7 +140,7 @@ export default function Page() {
     if (!Number.isInteger(numeric) || numeric <= 0) { setFormError(true); setFormMessage('Ingresá un monto entero mayor a cero.'); return }
     if (!groupData?.group) { setFormError(true); setFormMessage('No podés guardar movimientos sin un grupo. Creá o unite a uno desde Configuración.'); return }
     setFormMessage(''); setFormError(false); setIsSaving(true)
-    const cat = categories.find(c => c.name === category)
+    const cat = customCategories.find(c => c.name === category)
     const movement = { type, amount: numeric, category, description: description || category, date: movementDate }
     try {
       const response = await fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(movement) })
@@ -165,7 +176,7 @@ export default function Page() {
 
         {view === 'movimientos' && <section className="panel full-panel"><div className="filters"><div className="search-box"><Search size={17} /><input placeholder="Buscar movimiento..." value={search} onChange={e => setSearch(e.target.value)} /></div><button className="filter-btn"><CalendarDays size={16} /> Fecha <ChevronDown size={14} /></button><button className="filter-btn"><SlidersHorizontal size={16} /> Filtros</button></div><div className="tx-list">{filtered.map(t => <TransactionRow key={t.id} t={t} onDelete={() => { fetch(`/api/transactions?id=${t.id}`, { method: 'DELETE' }).then(() => mutate()); setTransactions(transactions.filter(x => x.id !== t.id)) }} />)}</div></section>}
         {view === 'analisis' && <Analysis expenseGroups={expenseGroups} income={income} expenses={expenses} monthlyTotals={monthlyTotals} maxMonthlyTotal={maxMonthlyTotal} categoryColor={categoryColor} />}
-        {view === 'configuracion' && <SettingsView groupData={groupData} mutateGroup={mutateGroup} />}
+        {view === 'configuracion' && <SettingsView groupData={groupData} mutateGroup={mutateGroup} categories={customCategories} mutateCategories={mutateCategories} />}
       </div>
     </main>
     <nav className="bottom-nav">{([['inicio', LayoutDashboard, 'Inicio'], ['movimientos', ArrowDownLeft, 'Movimientos'], ['analisis', BarChart3, 'Análisis'], ['configuracion', Settings, 'Config.']] as const).map(([id, Icon, label]) => <button className={view === id ? 'active' : ''} key={id} onClick={() => setView(id)}><Icon size={20} /><span>{label}</span></button>)}</nav>
@@ -179,11 +190,40 @@ function Analysis({ expenseGroups, income, expenses, monthlyTotals, maxMonthlyTo
   const monthLabel = (month: string) => new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(new Date(`${month}-01T12:00:00`)).replace('.', '')
   return <div className="analysis-grid"><section className="panel analysis-main"><div className="panel-head"><div><h2>Evolución mensual</h2><p>{monthlyTotals.length ? 'Movimientos registrados' : 'Todavía no hay movimientos para analizar'}</p></div><span className="period-select">{monthlyTotals.length ? 'Últimos meses' : 'Sin datos'}</span></div><div className="bar-chart">{monthlyTotals.length ? monthlyTotals.map(([month, totals]) => <div className="bar-group" key={month}><div className="bars"><span className="bar income" style={{ height: `${totals.income / maxMonthlyTotal * 100}%` }} /><span className="bar expense" style={{ height: `${totals.expense / maxMonthlyTotal * 100}%` }} /></div><small>{monthLabel(month)}</small></div>) : <div className="empty-chart">Los gráficos aparecerán cuando registres ingresos o gastos.</div>}</div><div className="chart-legend"><span><i className="green-dot" /> Ingresos</span><span><i className="orange-dot" /> Gastos</span></div></section><section className="panel"><div className="panel-head"><div><h2>Por categoría</h2><p>Gastos de este mes</p></div></div><div className="analysis-list">{expenseGroups.length ? expenseGroups.map(([name, value]) => <div className="analysis-item" key={name}><span className="legend-dot" style={{ background: categoryColor(name) }} /><div><strong>{name}</strong><small>{Math.round(value / expenses * 100)}% del total</small></div><b>{money(value)}</b></div>) : <div className="empty-state">No hay gastos registrados este mes.</div>}</div></section><section className="panel kpi-panel"><div><small>INGRESOS DEL MES</small><strong>{money(income)}</strong></div><div><small>GASTOS DEL MES</small><strong>{money(expenses)}</strong></div><div><small>BALANCE</small><strong>{money(income - expenses)}</strong></div></section></div>
 }
-function SettingsView({ groupData, mutateGroup }: { groupData?: GroupData; mutateGroup: () => void }) {
+function SettingsView({ groupData, mutateGroup, categories, mutateCategories }: { groupData?: GroupData; mutateGroup: () => void; categories: Category[]; mutateCategories: () => void }) {
   const [groupName, setGroupName] = useState('')
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [newCategoryType, setNewCategoryType] = useState<'income' | 'expense' | 'both'>('expense')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
   const [messageError, setMessageError] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'grupo' | 'categorias' | 'presupuesto' | 'preferencias'>('grupo')
+  const [budget, setBudget] = useState('')
+  const [savedBudget, setSavedBudget] = useState('')
+  const [compactMode, setCompactMode] = useState(false)
+  const [savedSettings, setSavedSettings] = useState('')
+  const saveBudget = () => { setSavedBudget(budget); setSavedSettings('Presupuesto actualizado.') }
+  const savePreferences = () => setSavedSettings('Preferencias guardadas.')
+  const addCategory = async () => {
+    const name = newCategoryName.trim()
+    if (!name) return
+    const response = await fetch('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, appliesTo: newCategoryType }) })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) { setMessageError(true); setSavedSettings(data.error || 'No se pudo agregar la categoría.'); return }
+    await mutateCategories()
+    setNewCategoryName('')
+    setMessageError(false)
+    setSavedSettings('Categoría agregada.')
+  }
+  const removeCategory = async (category: Category) => {
+    if (!category.id || !window.confirm(`¿Eliminar la categoría ${category.name}? Los movimientos pasarán a Otros.`)) return
+    const response = await fetch(`/api/categories?id=${encodeURIComponent(category.id)}`, { method: 'DELETE' })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) { setMessageError(true); setSavedSettings(data.error || 'No se pudo eliminar la categoría.'); return }
+    await mutateCategories()
+    setMessageError(false)
+    setSavedSettings('Categoría eliminada. Los movimientos asociados ahora están en Otros.')
+  }
   const createGroup = async () => {
     const response = await fetch('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: groupName }) })
     const data = await response.json()
@@ -204,7 +244,7 @@ function SettingsView({ groupData, mutateGroup }: { groupData?: GroupData; mutat
     if (response.ok) mutateGroup()
   }
   if (!groupData?.group) return <section className="panel settings-content empty-group"><div className="settings-hero"><span className="settings-icon"><Users size={22} /></span><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>Creá tu grupo</h2><p>Invitá a las personas de tu grupo y lleven las finanzas juntos, con el mismo nivel de acceso.</p></div></div><div className="settings-form"><label>Nombre del grupo<input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Ej. Casa" /></label><button className="save-btn" onClick={createGroup}><Plus size={17} /> Crear grupo</button></div>{message && <div className={`form-feedback ${messageError ? 'error' : 'success'}`} role="alert">{messageError ? <X size={16} /> : <Check size={16} />}{message}</div>}</section>
-  return <div className="settings-grid"><section className="panel settings-nav"><button className="settings-link active"><Users size={18} /> Grupo e integrantes</button><button className="settings-link"><Tag size={18} /> Categorías</button><button className="settings-link"><WalletCards size={18} /> Presupuesto</button><button className="settings-link"><Settings size={18} /> Preferencias</button></section><section className="panel settings-content"><div className="panel-head"><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>{groupData.group.name}</h2><p>Todos pueden registrar, eliminar movimientos e invitar integrantes.</p></div>{groupData.group.createdBy === groupData.currentUserId && <button className="danger-btn" onClick={deleteGroup}><Trash2 size={15} /> Eliminar grupo</button>}</div><div className="invite-card"><div><strong>Invitar integrante</strong><small>La persona debe tener una cuenta creada.</small></div><div className="invite-row"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@ejemplo.com" /><button className="outline-btn" onClick={addMember}><Plus size={16} /> Agregar</button></div></div>{message && <div className={`form-feedback ${messageError ? 'error' : 'success'}`} role="alert">{messageError ? <X size={16} /> : <Check size={16} />}{message}</div>}<div className="members-list">{groupData.members.map((member, index) => <Member key={member.id} name={member.name} email={member.email} role="Integrante" avatar={member.name[0]} dark={index === 0} canRemove={member.id !== groupData.currentUserId} onRemove={async () => { const response = await fetch(`/api/groups?userId=${encodeURIComponent(member.id)}`, { method: 'DELETE' }); const data = await response.json().catch(() => ({})); setMessage(response.ok ? `${member.name} fue quitado del grupo.` : data.error || 'No se pudo quitar al integrante.'); if (response.ok) mutateGroup() }} />)}</div></section></div>
+  return <div className="settings-grid"><section className="panel settings-nav"><button className={`settings-link ${settingsTab === 'grupo' ? 'active' : ''}`} onClick={() => setSettingsTab('grupo')}><Users size={18} /> Grupo e integrantes</button><button className={`settings-link ${settingsTab === 'categorias' ? 'active' : ''}`} onClick={() => setSettingsTab('categorias')}><Tag size={18} /> Categorías</button><button className={`settings-link ${settingsTab === 'presupuesto' ? 'active' : ''}`} onClick={() => setSettingsTab('presupuesto')}><WalletCards size={18} /> Presupuesto</button><button className={`settings-link ${settingsTab === 'preferencias' ? 'active' : ''}`} onClick={() => setSettingsTab('preferencias')}><Settings size={18} /> Preferencias</button></section><section className="panel settings-content">{settingsTab === 'categorias' && <><div className="panel-head"><div><span className="eyebrow">PERSONALIZÁ TU ESPACIO</span><h2>Categorías</h2><p>Creá categorías y elegí si aplican a ingresos, egresos o ambos.</p></div><Tag size={22} /></div><div className="category-create"><label>Nombre de la categoría<input value={newCategoryName} onChange={event => setNewCategoryName(event.target.value)} placeholder="Ej. Mascotas" /></label><label>Se usa en<select value={newCategoryType} onChange={event => setNewCategoryType(event.target.value as 'income' | 'expense' | 'both')}><option value="expense">Egresos</option><option value="income">Ingresos</option><option value="both">Ingresos y egresos</option></select></label><button className="save-btn" onClick={addCategory}><Plus size={17} /> Agregar categoría</button></div><div className="category-list">{categories.map(category => <div className="category-row" key={category.name}><span className="legend-dot" style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.appliesTo === 'both' ? 'Ingresos y egresos' : category.appliesTo === 'income' ? 'Ingresos' : 'Egresos'}</small></div>{!defaultCategories.some(defaultCategory => defaultCategory.name === category.name) && <button className="member-remove" onClick={() => removeCategory(category)} aria-label={`Eliminar categoría ${category.name}`}><Trash2 size={16} /></button>}</div>)}</div>{savedSettings && <div className="form-feedback success" role="status"><Check size={16} />{savedSettings}</div>}</>} {settingsTab === 'grupo' && <><div className="panel-head"><div><span className="eyebrow">ESPACIO COMPARTIDO</span><h2>{groupData.group.name}</h2><p>Todos pueden registrar, eliminar movimientos e invitar integrantes.</p></div>{groupData.group.createdBy === groupData.currentUserId && <button className="danger-btn" onClick={deleteGroup}><Trash2 size={15} /> Eliminar grupo</button>}</div><div className="invite-card"><div><strong>Invitar integrante</strong><small>La persona debe tener una cuenta creada.</small></div><div className="invite-row"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@ejemplo.com" /><button className="outline-btn" onClick={addMember}><Plus size={16} /> Agregar</button></div></div>{message && <div className={`form-feedback ${messageError ? 'error' : 'success'}`} role="alert">{messageError ? <X size={16} /> : <Check size={16} />}{message}</div>}<div className="members-list">{groupData.members.map((member, index) => <Member key={member.id} name={member.name} email={member.email} role="Integrante" avatar={member.name[0]} dark={index === 0} canRemove={member.id !== groupData.currentUserId} onRemove={async () => { const response = await fetch(`/api/groups?userId=${encodeURIComponent(member.id)}`, { method: 'DELETE' }); const data = await response.json().catch(() => ({})); setMessage(response.ok ? `${member.name} fue quitado del grupo.` : data.error || 'No se pudo quitar al integrante.'); if (response.ok) mutateGroup() }} />)}</div></>}{settingsTab === 'categorias' && <div className="settings-section"><span className="eyebrow">ORGANIZACIÓN</span><h2>Categorías</h2><p>Estas son las categorías disponibles para tus movimientos.</p><div className="category-settings-list">{expenseCategories.map(category => <div className="category-setting" key={category.name}><span className="legend-dot" style={{ background: category.color }} /><strong>{category.name}</strong><small>Egreso</small></div>)}{incomeCategories.map(category => <div className="category-setting" key={`income-${category.name}`}><span className="legend-dot" style={{ background: category.color }} /><strong>{category.name}</strong><small>Ingreso</small></div>)}</div></div>}{settingsTab === 'presupuesto' && <div className="settings-section"><span className="eyebrow">CONTROL MENSUAL</span><h2>Presupuesto</h2><p>Definí un límite de gastos para {groupData.group.name}.</p><label className="settings-field">Límite mensual<input type="number" inputMode="numeric" placeholder="Ej. 500000" value={budget} onChange={e => setBudget(e.target.value)} /></label>{savedBudget && <small className="saved-note">Límite guardado: {money(Number(savedBudget))}</small>}<button className="save-btn" onClick={saveBudget}><Check size={17} /> Guardar presupuesto</button>{savedSettings && <div className="form-feedback success" role="status"><Check size={16} />{savedSettings}</div>}</div>}{settingsTab === 'preferencias' && <div className="settings-section"><span className="eyebrow">PERSONALIZACIÓN</span><h2>Preferencias</h2><p>Elegí cómo querés ver y usar tu espacio.</p><label className="preference-row"><span><strong>Vista compacta</strong><small>Reducir el espacio entre movimientos.</small></span><input type="checkbox" checked={compactMode} onChange={e => setCompactMode(e.target.checked)} /></label><button className="save-btn" onClick={savePreferences}><Check size={17} /> Guardar preferencias</button>{savedSettings && <div className="form-feedback success" role="status"><Check size={16} />{savedSettings}</div>}</div>}</section></div>
 }
 function Member({ name, email, role, avatar, dark, canRemove, onRemove }: { name: string; email: string; role: string; avatar: string; dark?: boolean; canRemove?: boolean; onRemove?: () => void }) { return <div className="member-row"><span className={`avatar ${dark ? 'avatar-dark' : 'avatar-pink'}`}>{avatar}</span><div><strong>{name}</strong><small>{email}</small></div><span className="role">{role}</span>{canRemove && <button className="member-remove" onClick={() => { if (window.confirm(`¿Quitar a ${name} del grupo?`)) onRemove?.() }} aria-label={`Quitar a ${name}`} title="Quitar integrante"><X size={16} /></button>}</div> }
 

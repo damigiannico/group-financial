@@ -1,6 +1,6 @@
-# Casa Clara
+# Finanzas grupales
 
-Casa Clara es un panel de economía compartida para un grupo del hogar. La autenticación usa Better Auth y la persistencia usa Neon Postgres mediante Drizzle.
+Finanzas grupales es un panel de economía compartida para un grupo del grupo. La autenticación usa Better Auth y la persistencia usa Neon Postgres mediante Drizzle.
 
 ## Configuración necesaria
 
@@ -17,7 +17,7 @@ No uses datos mock ni `localStorage`: los movimientos se leen y escriben en Neon
 2. Cerrá sesión desde el botón `Salir` del panel.
 3. Creá el usuario de Eli desde `/sign-up`, por ejemplo `eli@casa.com`.
 4. Iniciá sesión como cualquiera de los dos.
-5. Ambos usuarios quedan asociados al primer grupo del hogar existente. Los movimientos creados por uno se muestran al otro porque la API consulta por `group_id`.
+5. Ambos usuarios quedan asociados al primer grupo existente. Los movimientos creados por uno se muestran al otro porque la API consulta por `group_id`.
 6. En un grupo nuevo, el primer usuario crea el grupo y queda como administrador; el siguiente usuario que se registre se suma como integrante.
 
 Si una cuenta ya existe, usá `/sign-in` en lugar de `/sign-up`.

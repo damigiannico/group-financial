@@ -1,6 +1,6 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { groupMembers, householdGroups, transactions, user } from '@/lib/db/schema'
+import { categories, groupMembers, householdGroups, transactions, user } from '@/lib/db/schema'
 import { and, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
@@ -21,6 +21,13 @@ export async function GET() {
   const membership = (await getMembership(current.id))[0]
   if (!membership) return NextResponse.json({ group: null, members: [], currentUserId: current.id, currentUser: { id: current.id, name: current.name, email: current.email } })
   const group = (await db.select().from(householdGroups).where(eq(householdGroups.id, membership.groupId)).limit(1))[0]
+  const existingCategories = await db.select({ id: categories.id }).from(categories).where(eq(categories.groupId, membership.groupId)).limit(1)
+  if (!existingCategories[0]) {
+    const defaults = [
+      ['Supermercado', 'shopping', '#d7f16a', 'expense'], ['Casa', 'home', '#ffb07c', 'expense'], ['Hijos', 'school', '#a9d5ff', 'expense'], ['Transporte', 'car', '#d9c5ff', 'expense'], ['Personal', 'user', '#ffcae5', 'expense'], ['Servicios', 'bolt', '#c4edd7', 'expense'], ['Otros', 'tag', '#d9d3c7', 'both'], ['Sueldo', 'wallet', '#b9e6c4', 'income'], ['Ventas', 'shopping', '#a9d5ff', 'income'],
+    ]
+    await db.insert(categories).values(defaults.map(([name, icon, color, appliesTo]) => ({ id: crypto.randomUUID(), groupId: membership.groupId, name, icon, color, appliesTo, createdAt: new Date() })))
+  }
   const members = await db.select({ id: user.id, name: user.name, email: user.email, role: groupMembers.role })
     .from(groupMembers).innerJoin(user, eq(user.id, groupMembers.userId)).where(eq(groupMembers.groupId, membership.groupId))
   return NextResponse.json({ group, members, currentUserId: current.id })

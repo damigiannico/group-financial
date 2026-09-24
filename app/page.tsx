@@ -1343,7 +1343,6 @@ function SettingsView({
         )}
         {settingsTab === "categorias" && (
           <div className="settings-section">
-            <span className="eyebrow">ORGANIZACIÓN</span>
             <h2>Categorías</h2>
             <p>Estas son las categorías disponibles para tus movimientos.</p>
             <div className="category-settings-list">

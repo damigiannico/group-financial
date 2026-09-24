@@ -1231,7 +1231,7 @@ function SettingsView({
                 <Plus size={17} /> Agregar categoría
               </button>
             </div>
-            <div className="category-list">
+            {/* <div className="category-list">
               {categories.map((category) => (
                 <div className="category-row" key={category.name}>
                   <span
@@ -1261,7 +1261,7 @@ function SettingsView({
                   )}
                 </div>
               ))}
-            </div>
+            </div> */}
             {savedSettings && (
               <div className="form-feedback success" role="status">
                 <Check size={16} />

@@ -4,7 +4,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Finanzas compartidas — Finanzas del hogar',
-  description: 'Organizá los ingresos y gastos de tu hogar en un solo lugar.',
+  description: 'Organizá los ingresos y gastos de tu grupo en un solo lugar.',
   generator: 'v0.app',
   icons: {
     icon: [
